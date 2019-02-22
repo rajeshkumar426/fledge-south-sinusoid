@@ -4,18 +4,15 @@
 # See: http://foglamp.readthedocs.io/
 # FOGLAMP_END
 
-""" Module for Sinusoid async plugin """
+""" Module for Sinusoid poll mode plugin """
 
-import asyncio
 import copy
 import uuid
-import datetime
+import logging
 
 from foglamp.common import logger
 from foglamp.plugins.common import utils
 from foglamp.services.south import exceptions
-from foglamp.services.south.ingest import Ingest
-
 
 __author__ = "Ashish Jabble"
 __copyright__ = "Copyright (c) 2018 Dianomic Systems"
@@ -25,64 +22,22 @@ __version__ = "${VERSION}"
 
 _DEFAULT_CONFIG = {
     'plugin': {
-        'description': 'Sinusoid async plugin',
+        'description': 'Sinusoid Poll Plugin which implements sine wave with data points',
         'type': 'string',
-        'default': 'sinusoid'
+        'default': 'sinusoid',
+        'readonly': 'true'
     },
-    'dataPointsPerSec': {
-        'description': 'Data points per second',
-        'type': 'integer',
-        'default': "1"
+    'assetName': {
+        'description': 'Name of Asset',
+        'type': 'string',
+        'default': 'sinusoid',
+        'displayName': 'Asset name'
     }
 }
 
-_LOGGER = logger.setup(__name__, level=20)
+_LOGGER = logger.setup(__name__, level=logging.INFO)
 index = -1
-
-
-def plugin_info():
-    """ Returns information about the plugin.
-    Args:
-    Returns:
-        dict: plugin information
-    Raises:
-    """
-
-    return {
-        'name': 'Sinusoid plugin',
-        'version': '1.0',
-        'mode': 'async',
-        'type': 'south',
-        'interface': '1.0',
-        'config': _DEFAULT_CONFIG
-    }
-
-
-def plugin_init(config):
-    """ Initialise the plugin.
-    Args:
-        config: JSON configuration document for the South plugin configuration category
-    Returns:
-        data: JSON object to be used in future calls to the plugin
-    Raises:
-    """
-    data = copy.deepcopy(config)
-    return data
-
-
-def plugin_start(handle):
-    """ Extracts data from the sinusoid and returns it in a JSON document as a Python dict.
-    Available for async mode only.
-
-    Args:
-        handle: handle returned by the plugin initialisation call
-    Returns:
-        a sinusoid reading in a JSON document, as a Python dict, if it is available
-        None - If no reading is available
-    Raises:
-        TimeoutError
-    """
-    sine = [
+sine = [
         0.0,
         0.104528463,
         0.207911691,
@@ -145,44 +100,65 @@ def plugin_start(handle):
         -0.104528463
     ]
 
-    def generate_data():
-        global index
-        while index >= -1:
-            # index exceeds, reset to default
-            if index >= 59:
-                index = -1
-            index += 1
-            yield sine[index]
 
-    async def save_data():
-        try:
-            while True:
-                # TODO: Use utils.local_timestamp() and this will be used once v1.3 debian package release
-                # https://github.com/foglamp/FogLAMP/commit/66dead988152cd3724eba6b4288b630cfa6a2e30
-                time_stamp = str(datetime.datetime.now(datetime.timezone.utc).astimezone())  # utils.local_timestamp()
-                data = {
-                    'asset': 'sinusoid',
-                    'timestamp': time_stamp,
-                    'key': str(uuid.uuid4()),
-                    'readings': {
-                        "sinusoid": next(generate_data())
-                    }
-                }
+def generate_data():
+    global index
+    while index >= -1:
+        # index exceeds, reset to default
+        if index >= 59:
+            index = -1
+        index += 1
+        yield sine[index]
 
-                await Ingest.add_readings(asset='{}'.format(data['asset']),
-                                          timestamp=data['timestamp'], key=data['key'],
-                                          readings=data['readings'])
 
-                await asyncio.sleep(1/(int(handle['dataPointsPerSec']['value'])))
+def plugin_info():
+    """ Returns information about the plugin.
+    Args:
+    Returns:
+        dict: plugin information
+    Raises:
+    """
+    return {
+        'name': 'Sinusoid Poll plugin',
+        'version': '1.5.0',
+        'mode': 'poll',
+        'type': 'south',
+        'interface': '1.0',
+        'config': _DEFAULT_CONFIG
+    }
 
-        except asyncio.CancelledError:
-            pass
 
-        except (Exception, RuntimeError) as ex:
-            _LOGGER.exception("Sinusoid exception: {}".format(str(ex)))
-            raise exceptions.DataRetrievalError(ex)
+def plugin_init(config):
+    """ Initialise the plugin.
+    Args:
+        config: JSON configuration document for the South plugin configuration category
+    Returns:
+        data: JSON object to be used in future calls to the plugin
+    Raises:
+    """
+    data = copy.deepcopy(config)
+    return data
 
-    asyncio.ensure_future(save_data())
+
+def plugin_poll(handle):
+    """ Extracts data from the sensor and returns it in a JSON document as a Python dict.
+    Available for poll mode only.
+    Args:
+        handle: handle returned by the plugin initialisation call
+    Returns:
+        returns a sensor reading in a JSON document, as a Python dict, if it is available
+        None - If no reading is available
+    Raises:
+        TimeoutError
+    """
+    try:
+        time_stamp = utils.local_timestamp()
+        data = {'asset':  handle['assetName']['value'], 'timestamp': time_stamp, 'key': str(uuid.uuid4()), 'readings': {"sinusoid": next(generate_data())}}
+    except (Exception, RuntimeError) as ex:
+        _LOGGER.exception("Sinusoid exception: {}".format(str(ex)))
+        raise exceptions.DataRetrievalError(ex)
+    else:
+        return data
 
 
 def plugin_reconfigure(handle, new_config):
@@ -195,32 +171,8 @@ def plugin_reconfigure(handle, new_config):
         new_handle: new handle to be used in the future calls
     """
     _LOGGER.info("Old config for sinusoid plugin {} \n new config {}".format(handle, new_config))
-
-    # Find diff between old config and new config
-    diff = utils.get_diff(handle, new_config)
-
-    # Plugin should re-initialize and restart if key configuration is changed
-    if 'dataPointsPerSec' in diff:
-        _plugin_stop(handle)
-        new_handle = plugin_init(new_config)
-        new_handle['restart'] = 'yes'
-        _LOGGER.info("Restarting Sinusoid plugin due to change in configuration key [{}]".format(', '.join(diff)))
-    else:
-        new_handle = copy.deepcopy(new_config)
-        new_handle['restart'] = 'no'
-
+    new_handle = copy.deepcopy(new_config)
     return new_handle
-
-
-def _plugin_stop(handle):
-    """ Stops the plugin doing required cleanup, to be called prior to the South plugin service being shut down.
-
-    Args:
-        handle: handle returned by the plugin initialisation call
-    Returns:
-        None
-    """
-    _LOGGER.info('sinusoid disconnected.')
 
 
 def plugin_shutdown(handle):
@@ -229,7 +181,6 @@ def plugin_shutdown(handle):
     Args:
         handle: handle returned by the plugin initialisation call
     Returns:
-        plugin stop
+        plugin shutdown
     """
-    _plugin_stop(handle)
     _LOGGER.info('sinusoid plugin shut down.')
