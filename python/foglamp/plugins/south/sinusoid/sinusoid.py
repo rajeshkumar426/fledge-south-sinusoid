@@ -12,7 +12,6 @@ import logging
 
 from foglamp.common import logger
 from foglamp.plugins.common import utils
-from foglamp.services.south import exceptions
 
 __author__ = "Ashish Jabble"
 __copyright__ = "Copyright (c) 2018 Dianomic Systems"
@@ -149,14 +148,14 @@ def plugin_poll(handle):
         returns a sensor reading in a JSON document, as a Python dict, if it is available
         None - If no reading is available
     Raises:
-        TimeoutError
+        Exception
     """
     try:
         time_stamp = utils.local_timestamp()
         data = {'asset':  handle['assetName']['value'], 'timestamp': time_stamp, 'key': str(uuid.uuid4()), 'readings': {"sinusoid": next(generate_data())}}
     except (Exception, RuntimeError) as ex:
         _LOGGER.exception("Sinusoid exception: {}".format(str(ex)))
-        raise exceptions.DataRetrievalError(ex)
+        raise ex
     else:
         return data
 
