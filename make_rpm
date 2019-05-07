@@ -104,9 +104,8 @@ cp -R ${GIT_ROOT}/packages/RPM/* .
 sed -i "s/__VERSION__/${version}/g" SPECS/foglamp.spec
 sed -i "s/__NAME__/${pkg_name}/g" SPECS/foglamp.spec
 sed -i "s/__ARCH__/${arch}/g" SPECS/foglamp.spec
-sed -i "s/Requires: foglamp/Requires: foglamp (${foglamp_version})/g" SPECS/foglamp.spec
+sed -i "s/Requires:\([[:space:]]*\)foglamp/Requires:\1foglamp${foglamp_version}/g" SPECS/foglamp.spec
 
-pwd
 mkdir BUILDROOT
 cd BUILDROOT
 mkdir -p ${package_name}-1.x86_64
