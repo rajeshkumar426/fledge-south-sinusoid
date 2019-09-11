@@ -1,5 +1,5 @@
 ***********************
-FogLAMP South Sinusoid
+Fledge South Sinusoid
 ***********************
 
 This directory contains a South plugin that implements sine wave with data points.
